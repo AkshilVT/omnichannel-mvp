@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: Guidelines for scraper modules
+globs:
+  - src/agents/scraper/**/*.ts
+alwaysApply: false
+---
+
+- Use Playwright for web scraping.
+- Implement proper error handling for failed scrapes.
+- Handle rate limiting and retries gracefully.
+- Use TypeScript for type safety.
+- Follow the established message flow pattern.
+- Implement proper logging for debugging.
+- Handle different content types appropriately.
+- Use environment variables for configuration.
+- Implement proper error messages.
+- Follow web scraping best practices.

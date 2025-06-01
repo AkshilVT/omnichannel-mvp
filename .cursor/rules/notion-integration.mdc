@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: Notion API integration standards
+globs:
+  - src/agents/notion/**/*.ts
+alwaysApply: false
+---
+
+- Use Notion's official SDK for API interactions.
+- Structure data to match the predefined Notion database schema.
+- Implement retries with exponential backoff for rate-limited requests.
+- Securely handle and store user tokens.

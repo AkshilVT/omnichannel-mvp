@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: Standards for Gemini API usage
+globs:
+  - src/agents/gemini/**/*.ts
+alwaysApply: false
+---
+
+- Use Gemini API for summarization, tagging, and metadata extraction.
+- Handle API responses and errors appropriately.
+- Monitor usage to stay within quota limits.
+- Abstract Gemini interactions to allow for potential future replacements.

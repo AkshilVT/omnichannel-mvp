@@ -1,0 +1,51 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Prompting Strategies for Gemini API and LLMs
+
+## 1. Escaping Curly Braces in Prompts
+- When using prompt templates (e.g., with LangChain), always escape curly braces intended as literals by doubling them: `{{` and `}}`.
+- Only use single curly braces for variable substitution (e.g., `{content}`).
+- Example:
+  ```
+  Respond ONLY with a valid JSON object in the format:
+  {{
+    "summary": "...",
+    "tags": ["tag1", "tag2", ...]
+  }}
+  ```
+
+## 2. Structured Output
+- Instruct the LLM to return output in a strict JSON format for easier parsing and reliability.
+- Example prompt:
+  ```
+  You are an intelligent content summarizer and tagger. Given the following content, return a JSON object with two fields: "summary" (a concise 3-5 sentence summary) and "tags" (an array of 5-7 relevant tags).
+
+  If you are unable to access the content or face any errors, respond ONLY with the following format:
+  {{"error": "error message here"}}
+
+  Content: {content}
+
+  Respond ONLY with a valid JSON object in the format:
+  {{
+    "summary": "...",
+    "tags": ["tag1", "tag2", ...]
+  }}
+  ```
+- Always parse the LLM response as JSON and handle errors gracefully.
+
+## 3. Error Handling in Prompts
+- Specify a clear error format for the LLM to use if it cannot process the input (e.g., `{"error": "error message here"}`).
+- Detect this error format in your code and handle it by notifying the user and skipping downstream processing.
+
+## 4. General Prompt Engineering Best Practices
+- Be explicit about the required output format and content.
+- Use clear instructions and examples in the prompt.
+- Minimize ambiguity to reduce LLM hallucinations.
+- For more advanced strategies, see the [Gemini API Prompting Strategies documentation](mdc:https:/ai.google.dev/gemini-api/docs/prompting-strategies).
+
+## 5. References
+- [Gemini API Prompting Strategies](mdc:https:/ai.google.dev/gemini-api/docs/prompting-strategies)
+- [LangChain Structured Outputs](mdc:https:/js.langchain.com/docs/concepts/structured_outputs)

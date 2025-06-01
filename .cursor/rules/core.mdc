@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: Core guidelines for Omnichannel Bot project
+globs:
+  - src/**/*.ts
+  - src/**/*.js
+alwaysApply: true
+---
+
+- Follow the workflow-based architecture as outlined in the project documentation.
+- Maintain modularity by separating concerns into distinct processors.
+- Use consistent naming conventions: Processor suffix for classes, kebab-case for files.
+- Implement proper error handling and logging in all processors.
+- Keep processors focused on a single responsibility.
+- Document all public methods and interfaces.
+- Write unit tests for all processor functionality.
+- Use TypeScript for new code.
+- Follow the established message flow pattern.
+- Implement proper error handling and logging.

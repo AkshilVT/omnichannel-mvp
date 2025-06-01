@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: Telegram bot development guidelines
+globs:
+  - src/agents/telegram/**/*.ts
+alwaysApply: false
+---
+
+- Use the Telegram Bot API for all interactions.
+- Implement proper error handling for API calls.
+- Handle rate limiting and retries gracefully.
+- Use TypeScript for type safety.
+- Follow the established message flow pattern.
+- Implement proper logging for debugging.
+- Handle user authentication securely.
+- Use environment variables for configuration.
+- Implement proper error messages for users.
+- Follow Telegram's best practices for bot development.
