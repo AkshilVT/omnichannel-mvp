@@ -1,15 +1,22 @@
 const Redis = require('ioredis');
+const { STREAMS } = require('../config/constants');
+const winston = require('winston');
+
+// Create logger instance
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
 
 class MessageBus {
   constructor(redisUrl) {
     this.redis = new Redis(redisUrl);
-    this.streams = {
-      ingestion: 'stream:ingestion',
-      platformDetection: 'stream:platform-detection',
-      scraping: 'stream:scraping',
-      summarization: 'stream:summarization',
-      notion: 'stream:notion',
-    };
+    this.streams = STREAMS;
   }
 
   async clearStreams() {
@@ -18,9 +25,12 @@ class MessageBus {
       for (const stream of Object.values(this.streams)) {
         await this.redis.del(stream);
       }
-      console.log('All message bus streams cleared successfully');
+      logger.info('All message bus streams cleared successfully');
     } catch (error) {
-      console.error('Error clearing message bus streams:', error);
+      logger.error('Error clearing message bus streams', {
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }
@@ -30,7 +40,10 @@ class MessageBus {
       const messageId = await this.redis.xadd(stream, '*', 'message', JSON.stringify(message));
       return messageId;
     } catch (error) {
-      console.error(`Error publishing to stream ${stream}:`, error);
+      logger.error(`Error publishing to stream ${stream}`, {
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }
@@ -73,7 +86,10 @@ class MessageBus {
         }
       }
     } catch (error) {
-      console.error(`Error in subscription to stream ${stream}:`, error);
+      logger.error(`Error in subscription to stream ${stream}`, {
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }
@@ -83,7 +99,10 @@ class MessageBus {
       const pending = await this.redis.xpending(stream, consumerGroup, '-', '+', 100);
       return pending;
     } catch (error) {
-      console.error(`Error getting pending messages from stream ${stream}:`, error);
+      logger.error(`Error getting pending messages from stream ${stream}`, {
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }
@@ -93,7 +112,10 @@ class MessageBus {
       const claimed = await this.redis.xclaim(stream, consumerGroup, consumerName, 0, messageId);
       return claimed;
     } catch (error) {
-      console.error(`Error claiming message ${messageId} from stream ${stream}:`, error);
+      logger.error(`Error claiming message ${messageId} from stream ${stream}`, {
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }

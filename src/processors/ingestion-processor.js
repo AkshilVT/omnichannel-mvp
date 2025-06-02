@@ -1,17 +1,32 @@
 const BaseProcessor = require('./base-processor');
 const TelegramBot = require('node-telegram-bot-api');
 
+/**
+ * Processes incoming messages from Telegram
+ * Extracts URLs and initiates the workflow
+ */
 class IngestionProcessor extends BaseProcessor {
+  /**
+   * Create a new IngestionProcessor
+   * @param {string} token - The Telegram bot token
+   */
   constructor(token) {
     super();
     this.bot = new TelegramBot(token, { polling: true });
     this.setupWebhook();
   }
 
+  /**
+   * Set the message bus for publishing messages
+   * @param {MessageBus} messageBus - The message bus instance
+   */
   setMessageBus(messageBus) {
     this.messageBus = messageBus;
   }
 
+  /**
+   * Set up the Telegram webhook to handle incoming messages
+   */
   setupWebhook() {
     this.bot.on('message', async (msg) => {
       try {
@@ -37,6 +52,11 @@ class IngestionProcessor extends BaseProcessor {
     });
   }
 
+  /**
+   * Check if a string is a valid URL
+   * @param {string} string - The string to check
+   * @returns {boolean} True if the string is a valid URL
+   */
   isValidUrl(string) {
     try {
       new URL(string);
@@ -46,11 +66,19 @@ class IngestionProcessor extends BaseProcessor {
     }
   }
 
+  /**
+   * Process a message and publish it to the message bus
+   * @param {Object} message - The message to process
+   * @returns {Promise<Object>} The processed message
+   * @throws {Error} If the message bus is not initialized
+   */
   async processMessage(message) {
-    this.logInfo('---------------\n Processing new URL', { url: message.url });
+    this.logInfo('Processing new URL', { url: message.url });
 
     if (!this.messageBus) {
-      throw new Error('MessageBus not initialized');
+      const error = new Error('MessageBus not initialized');
+      this.logError('MessageBus not initialized', { message });
+      throw error;
     }
 
     // Publish to ingestion stream

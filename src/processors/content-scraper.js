@@ -1,7 +1,13 @@
 const BaseProcessor = require('./base-processor');
 const { chromium } = require('playwright');
 
+/**
+ * Scrapes content from various platforms using Playwright or API stubs
+ */
 class ContentScraper extends BaseProcessor {
+  /**
+   * Create a new ContentScraper
+   */
   constructor() {
     super();
     this.scrapers = {
@@ -12,15 +18,32 @@ class ContentScraper extends BaseProcessor {
       article: this.scrapeArticle.bind(this),
       unknown: this.scrapeGeneric.bind(this),
     };
+    this.logInfo('Content scraper initialized');
   }
 
+  /**
+   * Process a message to scrape content based on platform
+   * @param {Object} message - The message containing url and platform
+   * @returns {Promise<Object>} The message with scraped content
+   * @throws {Error} If scraping fails
+   */
   async processMessage(message) {
     try {
       const { url, platform } = message;
       this.logInfo('Starting content scraping', { url, platform });
 
+      if (!url) {
+        throw new Error('URL is required for content scraping');
+      }
+
       const scraper = this.scrapers[platform] || this.scrapers.unknown;
       const content = await scraper(url);
+
+      this.logInfo('Content scraping completed', {
+        url,
+        platform,
+        contentType: content.type,
+      });
 
       return {
         ...message,
@@ -29,11 +52,17 @@ class ContentScraper extends BaseProcessor {
       };
     } catch (error) {
       await this.handleError(error, { url: message.url, platform: message.platform });
+      throw error;
     }
   }
 
+  /**
+   * Stub for YouTube scraping (to be implemented)
+   * @param {string} url - YouTube video URL
+   * @returns {Promise<Object>} Video metadata
+   */
   async scrapeYoutube(url) {
-    // TODO: Implement YouTube API integration
+    this.logInfo('YouTube scraping not implemented', { url });
     return {
       type: 'youtube',
       url,
@@ -44,8 +73,13 @@ class ContentScraper extends BaseProcessor {
     };
   }
 
+  /**
+   * Stub for Instagram scraping (to be implemented)
+   * @param {string} url - Instagram post URL
+   * @returns {Promise<Object>} Post metadata
+   */
   async scrapeInstagram(url) {
-    // TODO: Implement Instagram scraping
+    this.logInfo('Instagram scraping not implemented', { url });
     return {
       type: 'instagram',
       url,
@@ -55,8 +89,13 @@ class ContentScraper extends BaseProcessor {
     };
   }
 
+  /**
+   * Stub for Twitter scraping (to be implemented)
+   * @param {string} url - Twitter post URL
+   * @returns {Promise<Object>} Tweet metadata
+   */
   async scrapeTwitter(url) {
-    // TODO: Implement Twitter API integration
+    this.logInfo('Twitter scraping not implemented', { url });
     return {
       type: 'twitter',
       url,
@@ -66,9 +105,13 @@ class ContentScraper extends BaseProcessor {
     };
   }
 
+  /**
+   * Stub for LinkedIn scraping (to be implemented)
+   * @param {string} url - LinkedIn post URL
+   * @returns {Promise<Object>} Post metadata
+   */
   async scrapeLinkedIn(url) {
-    // TODO: Implement LinkedIn API integration
-    // For now, return basic structure
+    this.logInfo('LinkedIn scraping not implemented', { url });
     return {
       type: 'linkedin',
       url,
@@ -79,64 +122,133 @@ class ContentScraper extends BaseProcessor {
     };
   }
 
+  /**
+   * Scrape an article using Playwright
+   * @param {string} url - Article URL
+   * @returns {Promise<Object>} Article content and metadata
+   * @throws {Error} If scraping fails
+   */
   async scrapeArticle(url) {
-    // Use Playwright to fetch and extract article content
-    const browser = await chromium.launch();
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    const html = await page.content();
-    const title = await page.title();
-    // Try to extract meta description
-    const description = await page
-      .$eval('meta[name="description"]', (el) => el.content)
-      .catch(() => 'No description available');
-    // Try to extract author
-    const author = await page
-      .$eval('meta[name="author"]', (el) => el.content)
-      .catch(() => 'Unknown');
-    // Try to extract published date
-    const publishedAt = await page
-      .$eval('meta[property="article:published_time"]', (el) => el.content)
-      .catch(() => new Date().toISOString());
-    await browser.close();
-    return {
-      type: 'article',
-      url,
-      title,
-      description,
-      content: html,
-      author,
-      publishedAt,
-    };
+    let browser;
+    try {
+      this.logInfo('Starting article scraping', { url });
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+
+      // Set timeout for navigation
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
+      });
+
+      const [title, description, author, publishedAt] = await Promise.all([
+        page.title(),
+        this._extractMetaContent(page, 'meta[name="description"]'),
+        this._extractMetaContent(page, 'meta[name="author"]'),
+        this._extractMetaContent(page, 'meta[property="article:published_time"]'),
+      ]);
+
+      const html = await page.content();
+      const content = {
+        type: 'article',
+        url,
+        title,
+        description: description || 'No description available',
+        content: html,
+        author: author || 'Unknown',
+        publishedAt: publishedAt || new Date().toISOString(),
+      };
+
+      this.logInfo('Article scraping completed', {
+        url,
+        title,
+        hasDescription: !!description,
+        hasAuthor: !!author,
+        hasPublishedAt: !!publishedAt,
+      });
+
+      return content;
+    } catch (error) {
+      this.logError('Article scraping failed', {
+        url,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
   }
 
+  /**
+   * Scrape a generic web page using Playwright
+   * @param {string} url - Web page URL
+   * @returns {Promise<Object>} Page content and metadata
+   * @throws {Error} If scraping fails
+   */
   async scrapeGeneric(url) {
-    // Use Playwright to fetch and extract generic page content
-    const browser = await chromium.launch();
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    const html = await page.content();
-    const title = await page.title();
-    const description = await page
-      .$eval('meta[name="description"]', (el) => el.content)
-      .catch(() => 'No description available');
-    await browser.close();
-    return {
-      type: 'generic',
-      url,
-      title,
-      description,
-      content: html,
-    };
+    let browser;
+    try {
+      this.logInfo('Starting generic page scraping', { url });
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+
+      // Set timeout for navigation
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
+      });
+
+      const [title, description] = await Promise.all([
+        page.title(),
+        this._extractMetaContent(page, 'meta[name="description"]'),
+      ]);
+
+      const html = await page.content();
+      const content = {
+        type: 'generic',
+        url,
+        title,
+        description: description || 'No description available',
+        content: html,
+      };
+
+      this.logInfo('Generic page scraping completed', {
+        url,
+        title,
+        hasDescription: !!description,
+      });
+
+      return content;
+    } catch (error) {
+      this.logError('Generic page scraping failed', {
+        url,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
   }
 
-  extractMetaTag(html, name) {
-    const regex = new RegExp(
-      `<meta[^>]*(?:name|property)=["']${name}["'][^>]*content=["']([^"']*)["']`,
-      'i',
-    );
-    const match = html.match(regex);
-    return match ? match[1] : null;
+  /**
+   * Extract content from a meta tag
+   * @private
+   * @param {Page} page - Playwright page object
+   * @param {string} selector - Meta tag selector
+   * @returns {Promise<string|null>} Meta tag content or null if not found
+   */
+  async _extractMetaContent(page, selector) {
+    try {
+      return await page.$eval(selector, (el) => el.content);
+    } catch (error) {
+      return null;
+    }
   }
 }
 

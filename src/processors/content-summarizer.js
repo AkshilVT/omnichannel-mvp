@@ -1,14 +1,27 @@
+/**
+ * Content Summarizer
+ *
+ * A processor that uses Google's Gemini AI to generate structured summaries and tags
+ * from various types of content. It handles rate limiting, retries, and error cases
+ * gracefully while providing user feedback through Telegram.
+ */
 const BaseProcessor = require('./base-processor');
 const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
 const { PromptTemplate } = require('@langchain/core/prompts');
 const { sendTelegramMessage } = require('../utils/telegram');
 const extractLinks = require('../utils/extractLinks');
+const { AppError } = require('../utils/errors/AppError');
 
 class ContentSummarizer extends BaseProcessor {
+  /**
+   * Creates a new ContentSummarizer instance
+   * @param {string} apiKey - Google API key for Gemini AI
+   * @throws {AppError} If API key is missing
+   */
   constructor(apiKey) {
     super();
     if (!apiKey) {
-      throw new Error('GOOGLE_API_KEY is required');
+      throw new AppError('GOOGLE_API_KEY is required', 'INVALID_CONFIG');
     }
 
     // Initialize the LLM with the correct configuration and retry settings
@@ -27,73 +40,45 @@ class ContentSummarizer extends BaseProcessor {
     );
   }
 
+  /**
+   * Processes a message to generate a summary and tags
+   * @param {Object} message - The message to process
+   * @param {string} message.content - The content to summarize
+   * @param {string} message.platform - The platform the content is from
+   * @param {Object} [message.data] - Additional data for summarization
+   * @param {string} [message.chatId] - Telegram chat ID for notifications
+   * @returns {Promise<Object>} The processed message with summary and tags
+   * @throws {AppError} If content is missing or processing fails
+   */
   async process(message) {
     const { content, platform, data, chatId } = message;
     const summaryContent = content ?? data;
+
     if (!summaryContent) {
-      throw new Error('No content provided for summarization');
+      throw new AppError('No content provided for summarization', 'INVALID_INPUT');
     }
+
     this.logInfo('Received content for summarization', {
       platform,
       content: JSON.stringify(summaryContent).slice(0, 200),
     });
-    await sendTelegramMessage(chatId, `🔎 Analyzing content from *${platform}*...`);
+
     try {
+      await sendTelegramMessage(chatId, `🔎 Analyzing content from *${platform}*...`);
+
       // Generate structured summary and tags in one call
       this.logInfo('Starting structured summary+tags generation', { platform });
       await sendTelegramMessage(chatId, '✍️ Generating summary and tags (structured output)...');
+
       const prompt = await this.structuredPrompt.format({
         content: JSON.stringify(summaryContent, null, 2),
       });
-      const response = await this.llm.invoke(prompt);
-      let parsed;
-      try {
-        let content = response.content.trim();
-        // Remove Markdown code block if present
-        if (content.startsWith('```')) {
-          content = content
-            .replace(/^```[a-zA-Z]*\n?/, '')
-            .replace(/```$/, '')
-            .trim();
-        }
-        // Remove any leading/trailing non-JSON content
-        const firstBrace = content.indexOf('{');
-        const lastBrace = content.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace !== -1) {
-          content = content.substring(firstBrace, lastBrace + 1);
-        }
-        // Handle double curly braces by replacing them with single braces
-        content = content.replace(/{{/g, '{').replace(/}}/g, '}');
-        parsed = JSON.parse(content);
-      } catch (jsonError) {
-        this.logInfo('Error parsing LLM JSON response', {
-          error: jsonError.message,
-          response: response.content,
-        });
-        await sendTelegramMessage(
-          chatId,
-          '⚠️ Sorry, could not process the link. LLM did not return valid JSON.',
-        );
-        return {
-          ...message,
-          summary: 'Unable to parse LLM response as JSON.',
-          tags: [platform, 'unprocessed'],
-          summarizedAt: new Date().toISOString(),
-          summarizationFailed: true,
-        };
-      }
 
-      // Handle error field in structured output
-      if (parsed && parsed.error) {
-        this.logInfo('LLM returned error in structured output', { platform, error: parsed.error });
-        await sendTelegramMessage(chatId, "⚠️ Sorry, couldn't process the link. " + parsed.error);
-        return {
-          ...message,
-          summary: parsed.error,
-          tags: [platform, 'unprocessed'],
-          summarizedAt: new Date().toISOString(),
-          summarizationFailed: true,
-        };
+      const response = await this.llm.invoke(prompt);
+      const parsed = await this.parseLLMResponse(response.content, platform, chatId);
+
+      if (parsed.error) {
+        return this.createErrorResponse(message, parsed.error, platform);
       }
 
       // Extract resources (links) from the content
@@ -107,8 +92,10 @@ class ContentSummarizer extends BaseProcessor {
         tags: parsed.tags,
         resources,
       });
+
       await sendTelegramMessage(chatId, '✅ Summary and tags generated.');
       await sendTelegramMessage(chatId, '📝 Saving to Notion...');
+
       return {
         ...message,
         summary: parsed.summary,
@@ -122,17 +109,22 @@ class ContentSummarizer extends BaseProcessor {
         stack: error.stack,
         platform: message.platform,
       });
+
       await sendTelegramMessage(chatId, `❌ Summarization process failed: ${error.message}`);
-      // Return a fallback response with detailed error info
-      return {
-        ...message,
-        summary: `Unable to generate summary for ${message.platform} content at this time. Reason: ${error.message}`,
-        tags: [message.platform, 'unprocessed'],
-        summarizedAt: new Date().toISOString(),
-      };
+
+      return this.createErrorResponse(message, error.message, platform);
     }
   }
 
+  /**
+   * Processes a message with retry logic for rate limiting
+   * @param {Object} message - The message to process
+   * @param {string} message.content - The content to summarize
+   * @param {string} [message.url] - The URL of the content
+   * @param {string} [message.chatId] - Telegram chat ID for notifications
+   * @returns {Promise<Object>} The processed message with summary and tags
+   * @throws {AppError} If processing fails after retries
+   */
   async processMessage(message) {
     try {
       const { content, url, chatId } = message;
@@ -155,46 +147,13 @@ class ContentSummarizer extends BaseProcessor {
 
       while (retryCount < maxRetries) {
         try {
-          // Get structured summary from LLM
-          const result = await this.llm.invoke(
-            await this.structuredPrompt.format({
-              content: content,
-            }),
-          );
+          const result = await this.llm.invoke(await this.structuredPrompt.format({ content }));
 
-          let parsed;
-          try {
-            let content = result.content.trim();
-            // Remove Markdown code block if present
-            if (content.startsWith('```')) {
-              content = content
-                .replace(/^```[a-zA-Z]*\n?/, '')
-                .replace(/```$/, '')
-                .trim();
-            }
-            // Remove any leading/trailing non-JSON content
-            const firstBrace = content.indexOf('{');
-            const lastBrace = content.lastIndexOf('}');
-            if (firstBrace !== -1 && lastBrace !== -1) {
-              content = content.substring(firstBrace, lastBrace + 1);
-            }
-            // Handle double curly braces by replacing them with single braces
-            content = content.replace(/{{/g, '{').replace(/}}/g, '}');
-            parsed = JSON.parse(content);
-          } catch (jsonError) {
-            this.logInfo('Error parsing LLM response', {
-              error: jsonError.message,
-              response: result.content,
-            });
-            throw new Error('Failed to parse LLM response');
-          }
+          const parsed = await this.parseLLMResponse(result.content, null, chatId);
 
           if (parsed.error) {
-            throw new Error(parsed.error);
+            throw new AppError(parsed.error, 'LLM_ERROR');
           }
-
-          // Send success message back to user
-          // (REMOVED: Only NotionProcessor should send the final Notion success message)
 
           return {
             ...message,
@@ -205,23 +164,24 @@ class ContentSummarizer extends BaseProcessor {
         } catch (error) {
           lastError = error;
           if (error.status === 429) {
-            // Rate limit error
-            const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 30000); // Exponential backoff, max 30s
+            const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 30000);
             this.logInfo('Rate limit hit, retrying after delay', {
               retryCount,
               retryDelay,
               error: error.message,
             });
+
             if (chatId) {
               await sendTelegramMessage(
                 chatId,
                 `⏳ Rate limit reached. Retrying in ${retryDelay / 1000} seconds...`,
               );
             }
+
             await new Promise((resolve) => setTimeout(resolve, retryDelay));
             retryCount++;
           } else {
-            throw error; // Re-throw non-rate-limit errors
+            throw error;
           }
         }
       }
@@ -230,12 +190,14 @@ class ContentSummarizer extends BaseProcessor {
       this.logInfo('Max retries reached, returning fallback response', {
         error: lastError.message,
       });
+
       if (chatId) {
         await sendTelegramMessage(
           chatId,
           '⚠️ Unable to generate summary due to rate limits. Please try again in a few minutes.',
         );
       }
+
       return {
         ...message,
         summary: 'Summary generation temporarily unavailable due to rate limits.',
@@ -247,6 +209,72 @@ class ContentSummarizer extends BaseProcessor {
       await this.handleError(error, { url: message.url });
       throw error;
     }
+  }
+
+  /**
+   * Parses the LLM response into a structured object
+   * @private
+   * @param {string} content - The raw LLM response content
+   * @param {string} [platform] - The platform the content is from
+   * @param {string} [chatId] - Telegram chat ID for notifications
+   * @returns {Promise<Object>} The parsed response object
+   */
+  async parseLLMResponse(content, platform, chatId) {
+    try {
+      let cleanedContent = content.trim();
+
+      // Remove Markdown code block if present
+      if (cleanedContent.startsWith('```')) {
+        cleanedContent = cleanedContent
+          .replace(/^```[a-zA-Z]*\n?/, '')
+          .replace(/```$/, '')
+          .trim();
+      }
+
+      // Remove any leading/trailing non-JSON content
+      const firstBrace = cleanedContent.indexOf('{');
+      const lastBrace = cleanedContent.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        cleanedContent = cleanedContent.substring(firstBrace, lastBrace + 1);
+      }
+
+      // Handle double curly braces by replacing them with single braces
+      cleanedContent = cleanedContent.replace(/{{/g, '{').replace(/}}/g, '}');
+
+      return JSON.parse(cleanedContent);
+    } catch (error) {
+      this.logInfo('Error parsing LLM response', {
+        error: error.message,
+        response: content,
+      });
+
+      if (chatId) {
+        await sendTelegramMessage(
+          chatId,
+          '⚠️ Sorry, could not process the link. LLM did not return valid JSON.',
+        );
+      }
+
+      throw new AppError('Failed to parse LLM response', 'PARSE_ERROR', { originalError: error });
+    }
+  }
+
+  /**
+   * Creates an error response object
+   * @private
+   * @param {Object} message - The original message
+   * @param {string} errorMessage - The error message
+   * @param {string} platform - The platform the content is from
+   * @returns {Object} The error response object
+   */
+  createErrorResponse(message, errorMessage, platform) {
+    return {
+      ...message,
+      summary: `Unable to generate summary for ${platform} content at this time. Reason: ${errorMessage}`,
+      tags: [platform, 'unprocessed'],
+      summarizedAt: new Date().toISOString(),
+      summarizationFailed: true,
+    };
   }
 }
 

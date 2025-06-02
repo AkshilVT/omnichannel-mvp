@@ -1,4 +1,7 @@
 require('dotenv').config();
+const winston = require('winston');
+const { validateEnv } = require('./utils/env-validator');
+const { STREAMS } = require('./config/constants');
 const IngestionProcessor = require('./processors/ingestion-processor');
 const PlatformDetector = require('./processors/platform-detector');
 const ContentScraper = require('./processors/content-scraper');
@@ -7,6 +10,20 @@ const NotionProcessor = require('./processors/notion-processor');
 const YouTubeProcessor = require('./processors/youtube-processor');
 const MessageBus = require('./utils/MessageBus');
 const { sendTelegramMessage } = require('./utils/telegram');
+
+// Create logger instance
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+
+// Validate environment variables
+validateEnv();
 
 // Initialize message bus
 const messageBus = new MessageBus(process.env.REDIS_URL);
@@ -26,7 +43,7 @@ async function setupMessageFlow() {
 
   // Ingestion -> Platform Detection
   messageBus.subscribe(
-    messageBus.streams.ingestion,
+    STREAMS.INGESTION,
     'platform-detection-group',
     'platform-detection-1',
     async (message) => {
@@ -34,13 +51,13 @@ async function setupMessageFlow() {
       if (message.chatId && result.platform) {
         await sendTelegramMessage(message.chatId, `🔎 Platform detected: ${result.platform}`);
       }
-      await messageBus.publish(messageBus.streams.platformDetection, result);
+      await messageBus.publish(STREAMS.PLATFORM_DETECTION, result);
     },
   );
 
   // Platform Detection -> YouTube or Content Scraping
   messageBus.subscribe(
-    messageBus.streams.platformDetection,
+    STREAMS.PLATFORM_DETECTION,
     'content-fetching-group',
     'content-fetching-1',
     async (message) => {
@@ -65,13 +82,13 @@ async function setupMessageFlow() {
         }
         result = await contentScraper.processMessage(message);
       }
-      await messageBus.publish(messageBus.streams.scraping, result);
+      await messageBus.publish(STREAMS.SCRAPING, result);
     },
   );
 
   // Content Scraping/YouTube -> Summarization
   messageBus.subscribe(
-    messageBus.streams.scraping,
+    STREAMS.SCRAPING,
     'summarization-group',
     'summarization-1',
     async (message) => {
@@ -79,53 +96,51 @@ async function setupMessageFlow() {
         await sendTelegramMessage(message.chatId, '🤖 Starting content summarization...');
       }
       const result = await contentSummarizer.processMessage(message);
-      await messageBus.publish(messageBus.streams.summarization, result);
+      await messageBus.publish(STREAMS.SUMMARIZATION, result);
     },
   );
 
   // Summarization -> Notion
-  messageBus.subscribe(
-    messageBus.streams.summarization,
-    'notion-group',
-    'notion-1',
-    async (message) => {
-      // If summarization failed, do not proceed to Notion and notify user
-      if (message.summarizationFailed) {
-        if (message.chatId) {
-          await sendTelegramMessage(
-            message.chatId,
-            "⚠️ Sorry, couldn't process the link. Unable to detect the page contents for summarization.",
-          );
-        } else {
-          console.error('Missing chatId for summarization failure notification. Message:', message);
-        }
-        return;
-      }
+  messageBus.subscribe(STREAMS.SUMMARIZATION, 'notion-group', 'notion-1', async (message) => {
+    // If summarization failed, do not proceed to Notion and notify user
+    if (message.summarizationFailed) {
       if (message.chatId) {
-        await sendTelegramMessage(message.chatId, '🗂️ Saving to Notion...');
+        await sendTelegramMessage(
+          message.chatId,
+          "⚠️ Sorry, couldn't process the link. Unable to detect the page contents for summarization.",
+        );
+      } else {
+        logger.error('Missing chatId for summarization failure notification', { message });
       }
-      await notionProcessor.processMessage(message);
-      // Do not send the final success message here; NotionProcessor handles it.
-    },
-  );
+      return;
+    }
+    if (message.chatId) {
+      await sendTelegramMessage(message.chatId, '🗂️ Saving to Notion...');
+    }
+    await notionProcessor.processMessage(message);
+    // Do not send the final success message here; NotionProcessor handles it.
+  });
 
   // Update IngestionProcessor to use message bus
   ingestionProcessor.setMessageBus(messageBus);
 }
 
 // Log startup
-console.log('Omnichannel Bot is starting...');
+logger.info('Omnichannel Bot is starting...');
 
 // Initialize message flow
-setupMessageFlow().catch(console.error);
+setupMessageFlow().catch((error) => {
+  logger.error('Error setting up message flow', { error: error.message, stack: error.stack });
+  process.exit(1);
+});
 
 // Handle process termination
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+  logger.info('SIGTERM received. Shutting down gracefully...');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down gracefully...');
+  logger.info('SIGINT received. Shutting down gracefully...');
   process.exit(0);
 });
