@@ -24,6 +24,13 @@ development and operation of the Omnichannel Bot.
 - For sites with persistent challenges, manual intervention or authenticated sessions may be
   required.
 
+**Error Handling:**
+
+- Throws `AppError` with code `SCRAPING_ERROR`
+- Includes original error in context
+- Logs detailed error information
+- Provides user-friendly error message
+
 **Status:**
 
 - Partially solved. Some sites still block automated browsers. No universal solution for all
@@ -47,6 +54,12 @@ development and operation of the Omnichannel Bot.
 - For LinkedIn, consider using third-party scraping services or APIs (with caution and legal
   review).
 
+**Error Handling:**
+
+- Logs warning with `CONTENT_EXTRACTION_WARNING`
+- Continues processing with available content
+- Notifies user of partial content
+
 **Status:**
 
 - Not fully solved. Extraction of real post content from these platforms is limited by technical and
@@ -64,6 +77,13 @@ development and operation of the Omnichannel Bot.
 **Workarounds:**
 
 - Added robust type checking in the tag extraction logic to handle all response formats.
+- Implemented structured error handling for parsing failures.
+
+**Error Handling:**
+
+- Throws `AppError` with code `PARSE_ERROR`
+- Includes original response in context
+- Attempts to recover with fallback format
 
 **Status:**
 
@@ -80,6 +100,12 @@ development and operation of the Omnichannel Bot.
 **Workarounds:**
 
 - Run `npx playwright install` after installing Playwright to download the necessary browsers.
+
+**Error Handling:**
+
+- Throws `AppError` with code `BROWSER_ERROR`
+- Provides clear installation instructions
+- Logs detailed error information
 
 **Status:**
 
@@ -101,6 +127,12 @@ development and operation of the Omnichannel Bot.
 - Follow [Notion API documentation](https://developers.notion.com/docs/working-with-page-content)
   for correct setup.
 
+**Error Handling:**
+
+- Throws `AppError` with code `NOTION_ERROR`
+- Includes database/page ID in context
+- Provides setup instructions in error message
+
 **Status:**
 
 - Solved (with correct setup).
@@ -117,8 +149,15 @@ development and operation of the Omnichannel Bot.
 **Workarounds:**
 
 - Monitor API usage and handle errors gracefully.
-- Implement retry logic or exponential backoff if needed.
+- Implement retry logic with exponential backoff.
 - Upgrade to higher quota plans if required.
+
+**Error Handling:**
+
+- Throws `AppError` with code `RATE_LIMIT`
+- Implements exponential backoff retry
+- Logs quota usage and limits
+- Provides user-friendly retry messages
 
 **Status:**
 
@@ -126,7 +165,35 @@ development and operation of the Omnichannel Bot.
 
 ---
 
-## 7. Unsolved/Outstanding Issues
+## 7. Error Recovery and Fallbacks
+
+**Description:**
+
+- Various components may fail temporarily or permanently.
+
+**Implemented Solutions:**
+
+- Graceful degradation with fallback responses
+- Cached responses when available
+- User-friendly error messages
+- Detailed error logging
+- Retry mechanisms for transient failures
+
+**Error Handling:**
+
+- Structured error classes
+- Context preservation
+- Stack trace capture
+- Error categorization
+- Recovery strategies
+
+**Status:**
+
+- Implemented comprehensive error handling system.
+
+---
+
+## 8. Unsolved/Outstanding Issues
 
 - **Instagram/Twitter/LinkedIn full content extraction:** Not fully solved due to anti-bot and login
   requirements.
